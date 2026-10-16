@@ -1,0 +1,3 @@
+<fonts xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://developer.garmin.com/downloads/connect-iq/resources.xsd">
+    <font id="TimeFont" filename="time_font.fnt" antialias="true" filter="0123456789" />
+</fonts>

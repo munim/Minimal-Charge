@@ -1,0 +1,50 @@
+<settings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://developer.garmin.com/downloads/connect-iq/resources.xsd">
+    <setting propertyKey="@Properties.Slot1" title="@Strings.Slot1Title">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.SlotOff</listEntry>
+            <listEntry value="1">@Strings.SlotDate</listEntry>
+            <listEntry value="2">@Strings.SlotSteps</listEntry>
+            <listEntry value="3">@Strings.SlotBattery</listEntry>
+            <listEntry value="4">@Strings.SlotHeartRate</listEntry>
+            <listEntry value="5">@Strings.SlotWeather</listEntry>
+        </settingConfig>
+    </setting>
+
+    <setting propertyKey="@Properties.Slot2" title="@Strings.Slot2Title">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.SlotOff</listEntry>
+            <listEntry value="1">@Strings.SlotDate</listEntry>
+            <listEntry value="2">@Strings.SlotSteps</listEntry>
+            <listEntry value="3">@Strings.SlotBattery</listEntry>
+            <listEntry value="4">@Strings.SlotHeartRate</listEntry>
+            <listEntry value="5">@Strings.SlotWeather</listEntry>
+        </settingConfig>
+    </setting>
+
+    <setting propertyKey="@Properties.Slot3" title="@Strings.Slot3Title">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.SlotOff</listEntry>
+            <listEntry value="1">@Strings.SlotDate</listEntry>
+            <listEntry value="2">@Strings.SlotSteps</listEntry>
+            <listEntry value="3">@Strings.SlotBattery</listEntry>
+            <listEntry value="4">@Strings.SlotHeartRate</listEntry>
+            <listEntry value="5">@Strings.SlotWeather</listEntry>
+        </settingConfig>
+    </setting>
+
+    <setting propertyKey="@Properties.DataRefreshProfile" title="@Strings.DataRefreshProfileTitle">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.ProfileBalanced</listEntry>
+            <listEntry value="1">@Strings.ProfileMaxSaver</listEntry>
+            <listEntry value="2">@Strings.ProfileLiveActive</listEntry>
+        </settingConfig>
+    </setting>
+
+    <setting propertyKey="@Properties.TimeOnlyAmbient" title="@Strings.TimeOnlyAmbientTitle">
+        <settingConfig type="boolean" />
+    </setting>
+
+    <setting propertyKey="@Properties.AutoBatterySaver" title="@Strings.AutoBatterySaverTitle">
+        <settingConfig type="boolean" />
+    </setting>
+</settings>

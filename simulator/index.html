@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minimal Charge — Garmin Connect IQ Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: #14181f;
+      --border: #242b35;
+      --text: #e8ecf2;
+      --muted: #8e96a4;
+      --face-bg: #000000;
+      --face-fg: oklch(97% 0.004 250);
+      --face-dim: oklch(60% 0.008 250);
+      --face-track: oklch(26% 0.010 250);
+      --face-accent: oklch(74% 0.15 255);
+      --face-warn: oklch(80% 0.16 75);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 24px;
+      padding: 24px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      align-self: start;
+    }
+    .panel h1 {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .group {
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .group-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 12px;
+    }
+    .field-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+    }
+    select, input[type="time"], input[type="number"] {
+      background: #0d1015;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .seg {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      background: #0d1015;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .seg button {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .seg button.active {
+      background: #232a36;
+      color: var(--text);
+    }
+    .stage {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 36px;
+      padding: 20px;
+    }
+    .watch-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .watch-caption {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .bezel {
+      background: #1a1e26;
+      padding: 16px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), inset 0 0 0 2px #2c3340;
+      position: relative;
+    }
+    .bezel.round { border-radius: 50%; }
+    .bezel.square { border-radius: 44px; }
+    .dial {
+      position: relative;
+      background: #000000;
+      overflow: hidden;
+      user-select: none;
+    }
+    .dial.round {
+      width: 454px;
+      height: 454px;
+      border-radius: 50%;
+    }
+    .dial.square {
+      width: 390px;
+      height: 390px;
+      border-radius: 32px;
+    }
+    .dial-shift {
+      position: absolute;
+      inset: 0;
+    }
+    .time-stack {
+      position: absolute;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 300;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1, "zero" 0;
+      line-height: 0.8;
+      letter-spacing: -0.02em;
+      display: flex;
+      flex-direction: column;
+    }
+    .slot {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .slot.center {
+      align-items: center;
+      text-align: center;
+    }
+    .slot.left {
+      align-items: flex-start;
+      text-align: left;
+    }
+    .slot-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+    .slot-value {
+      font-size: 17px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.15;
+    }
+    .slot-bar-track {
+      height: 3px;
+      border-radius: 1.5px;
+      overflow: hidden;
+      margin-top: 2px;
+    }
+    .slot-bar-fill {
+      height: 100%;
+    }
+    .telemetry {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      background: #0d1015;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <aside class="panel">
+    <div>
+      <h1>Minimal Charge</h1>
+      <p class="subtitle">JetBrains Mono 300 stacked time face for Garmin Connect IQ 3.2+ (Round &amp; Square)</p>
+    </div>
+
+    <div class="group">
+      <div class="group-title">Display &amp; Power State</div>
+      <div class="field">
+        <span>Display Technology</span>
+        <div class="seg" id="displayTypeSeg">
+          <button type="button" data-val="amoled" class="active">AMOLED</button>
+          <button type="button" data-val="mip">MIP (64-color)</button>
+        </div>
+      </div>
+      <div class="field">
+        <span>Power Mode</span>
+        <div class="seg" id="wakeStateSeg" style="grid-template-columns: repeat(3, 1fr);">
+          <button type="button" data-val="wake" class="active">Active (Wake)</button>
+          <button type="button" data-val="tick">Active (1Hz Tick)</button>
+          <button type="button" data-val="ambient">Ambient (Sleep)</button>
+        </div>
+      </div>
+      <div class="field">
+        <span>Time Format</span>
+        <div class="seg" id="timeFormatSeg">
+          <button type="button" data-val="24h" class="active">24-Hour (00–23)</button>
+          <button type="button" data-val="12h">12-Hour (01–12)</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <label for="clockInput">Simulated Time</label>
+        <input id="clockInput" type="time" value="08:05" />
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">3-Slot Layout Engine</div>
+      <div class="field">
+        <label for="slot1">Slot 1 (Round Top / Square Row 1)</label>
+        <select id="slot1">
+          <option value="off">Off</option>
+          <option value="date" selected>Date (Minimal cost)</option>
+          <option value="steps">Steps (Low cost)</option>
+          <option value="battery">Watch battery (Minimal cost)</option>
+          <option value="hr">Heart Rate (High cost)</option>
+          <option value="weather">Weather (Medium cost)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="slot2">Slot 2 (Round Bottom-Left / Square Row 2)</label>
+        <select id="slot2">
+          <option value="off">Off</option>
+          <option value="date">Date (Minimal cost)</option>
+          <option value="steps" selected>Steps (Low cost)</option>
+          <option value="battery">Watch battery (Minimal cost)</option>
+          <option value="hr">Heart Rate (High cost)</option>
+          <option value="weather">Weather (Medium cost)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="slot3">Slot 3 (Round Bottom-Right / Square Row 3)</label>
+        <select id="slot3">
+          <option value="off">Off</option>
+          <option value="date">Date (Minimal cost)</option>
+          <option value="steps">Steps (Low cost)</option>
+          <option value="battery" selected>Watch battery (Minimal cost)</option>
+          <option value="hr">Heart Rate (High cost)</option>
+          <option value="weather">Weather (Medium cost)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">Battery Optimization Profiles</div>
+      <div class="field">
+        <label for="refreshProfile">Data Refresh Profile</label>
+        <select id="refreshProfile">
+          <option value="balanced" selected>Balanced (Default)</option>
+          <option value="saver">Max Battery Saver (Wake-Only)</option>
+          <option value="live">Live Active</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="timeOnlyAmbient">Time-Only in Ambient Mode</label>
+        <input id="timeOnlyAmbient" type="checkbox" />
+      </div>
+      <div class="field-row">
+        <label for="autoBatterySaver">Auto Battery Saver &lt;20%</label>
+        <input id="autoBatterySaver" type="checkbox" checked />
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">Simulated Sensor &amp; Firmware Data</div>
+      <div class="field">
+        <div class="field-row">
+          <label for="batteryLevel">Watch Battery</label>
+          <span id="batteryLevelOut">76%</span>
+        </div>
+        <input id="batteryLevel" type="range" min="1" max="100" value="76" />
+        <div class="seg" id="batteryQuickSeg">
+          <button type="button" data-bat="76" class="active">Normal (76%)</button>
+          <button type="button" data-bat="14">Low &lt;20% (14%)</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <label for="tempUnit">Temperature Unit</label>
+        <select id="tempUnit">
+          <option value="C" selected>Celsius (°C)</option>
+          <option value="F">Fahrenheit (°F)</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="weatherCondition">Weather Condition</label>
+        <select id="weatherCondition">
+          <option value="0" selected>0 — CLEAR</option>
+          <option value="1">1 — CLOUDY</option>
+          <option value="3">3 — RAIN</option>
+          <option value="25">25 — SHOWERS</option>
+          <option value="4">4 — SNOW</option>
+          <option value="6">6 — STORM</option>
+          <option value="5">5 — WIND</option>
+          <option value="8">8 — FOG</option>
+          <option value="9">9 — HAZE</option>
+          <option value="10">10 — HAIL</option>
+          <option value="7">7 — MIX</option>
+          <option value="53">53 — WEATHER</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label for="nullSensors">Simulate Null / Off-Wrist Sensors</label>
+        <input id="nullSensors" type="checkbox" />
+      </div>
+    </div>
+
+    <div class="telemetry" id="telemetryBox"></div>
+  </aside>
+
+  <main class="stage">
+    <div class="watch-card">
+      <div class="bezel round">
+        <div class="dial round" id="roundDial"></div>
+      </div>
+      <div class="watch-caption">Round Reference — 454×454 (34% centred)</div>
+    </div>
+
+    <div class="watch-card">
+      <div class="bezel square">
+        <div class="dial square" id="squareDial"></div>
+      </div>
+      <div class="watch-caption">Square Reference — 390×390 (40% top-left 8%, 8%)</div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { buildWatchRenderModel } from './engine.js';
+
+    const state = {
+      displayType: 'amoled',
+      powerMode: 'wake',
+      is24Hour: true,
+      hour: 8,
+      minute: 5,
+      slots: ['date', 'steps', 'battery'],
+      profile: 'balanced',
+      timeOnlyAmbient: false,
+      autoBatterySaver: true,
+      battery: 76,
+      tempUnit: 'C',
+      weatherCondition: 0,
+      nullSensors: false,
+    };
+
+    function renderDial(container, model) {
+      const { time, timeGeometry, burnIn, palette, slots } = model;
+      const isRound = model.shape === 'round';
+      const timeStyle = isRound
+        ? `left: 50%; top: ${timeGeometry.topPct}%; transform: translateX(-50%); font-size: ${timeGeometry.fontSizePx}px; text-align: center; color: ${palette.fg};`
+        : `left: ${timeGeometry.leftPct}%; top: ${timeGeometry.topPct}%; font-size: ${timeGeometry.fontSizePx}px; text-align: left; color: ${palette.fg};`;
+
+      const slotsHtml = slots
+        .filter((s) => s.visible)
+        .map((s) => {
+          const posStyle = isRound
+            ? s.topPct !== null
+              ? `top: ${s.topPct}%; left: ${s.leftPct}%; width: ${s.widthPct}%;`
+              : `bottom: ${s.bottomPct}%; left: ${s.leftPct}%; width: ${s.widthPct}%;`
+            : `top: ${s.topPct}%; left: ${s.leftPct}%; width: ${s.widthPct}%; height: ${s.heightPct}%;`;
+          const barHtml = s.metric.hasBar
+            ? `<div class="slot-bar-track" style="width: ${s.barWidthPx}px; background: ${s.trackColor};">
+                 <div class="slot-bar-fill" style="width: ${Math.round(s.metric.barRatio * 100)}%; background: ${s.barColor};"></div>
+               </div>`
+            : '';
+          return `
+            <div class="slot ${s.align}" style="${posStyle}">
+              <div class="slot-label" style="color: ${s.labelColor};">${s.metric.label}</div>
+              <div class="slot-value" style="color: ${s.valueColor};">${s.metric.value}</div>
+              ${barHtml}
+            </div>
+          `;
+        })
+        .join('');
+
+      container.innerHTML = `
+        <div class="dial-shift" style="transform: translate(${burnIn.dxPx}px, ${burnIn.dyPx}px);">
+          <div class="time-stack" style="${timeStyle}">
+            <div>${time.hour}</div>
+            <div>${time.minute}</div>
+          </div>
+          ${slotsHtml}
+        </div>
+      `;
+    }
+
+    function update() {
+      const isAwake = state.powerMode !== 'ambient';
+      const justWoke = state.powerMode === 'wake';
+      const minuteChanged = state.powerMode !== 'tick';
+      const common = {
+        displayType: state.displayType,
+        isAwake,
+        is24Hour: state.is24Hour,
+        hour: state.hour,
+        minute: state.minute,
+        slots: state.slots,
+        profile: state.profile,
+        timeOnlyAmbient: state.timeOnlyAmbient,
+        autoBatterySaver: state.autoBatterySaver,
+        weekday: 'WED',
+        day: state.nullSensors ? null : 14,
+        month: 'May',
+        steps: state.nullSensors ? null : 8420,
+        stepGoal: 10000,
+        battery: state.nullSensors ? null : state.battery,
+        heartRate: state.nullSensors ? null : 72,
+        weatherCondition: state.nullSensors ? null : state.weatherCondition,
+        temperatureC: state.nullSensors ? null : 18,
+        tempUnit: state.tempUnit,
+        justWoke,
+        minuteChanged,
+        elapsedSec: justWoke ? { steps: 900, battery: 900, weather: 900 } : { steps: 15, battery: 15, weather: 15 },
+      };
+
+      const roundModel = buildWatchRenderModel({ ...common, width: 454, height: 454, shape: 'round' });
+      const squareModel = buildWatchRenderModel({ ...common, width: 390, height: 390, shape: 'square' });
+
+      renderDial(document.getElementById('roundDial'), roundModel);
+      renderDial(document.getElementById('squareDial'), squareModel);
+
+      document.getElementById('telemetryBox').innerHTML = [
+        `font: JetBrains Mono 300 (digits 0–9)`,
+        `burn-in shift: [${roundModel.burnIn.dxPct}%, ${roundModel.burnIn.dyPct}%] (${roundModel.burnIn.dxPx}px, ${roundModel.burnIn.dyPx}px)`,
+        `palette fg: ${roundModel.palette.fg} | warn: ${roundModel.palette.warn}`,
+        `power-shedding (<20%): ${roundModel.lowPowerShedding ? 'ACTIVE' : 'off'}`,
+        `poll HR: ${roundModel.refreshPolicy.pollHr} | Weather: ${roundModel.refreshPolicy.pollWeather}`,
+      ].join('<br/>');
+    }
+
+    function bindSeg(id, key, transform = (v) => v) {
+      const el = document.getElementById(id);
+      el.querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          el.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          state[key] = transform(btn.dataset.val);
+          update();
+        });
+      });
+    }
+
+    bindSeg('displayTypeSeg', 'displayType');
+    bindSeg('wakeStateSeg', 'powerMode');
+    bindSeg('timeFormatSeg', 'is24Hour', (v) => v === '24h');
+
+    document.getElementById('clockInput').addEventListener('input', (e) => {
+      const [h, m] = (e.target.value || '08:05').split(':').map(Number);
+      state.hour = Number.isFinite(h) ? h : 8;
+      state.minute = Number.isFinite(m) ? m : 5;
+      update();
+    });
+
+    ['slot1', 'slot2', 'slot3'].forEach((id, idx) => {
+      document.getElementById(id).addEventListener('change', (e) => {
+        state.slots[idx] = e.target.value;
+        update();
+      });
+    });
+
+    document.getElementById('refreshProfile').addEventListener('change', (e) => {
+      state.profile = e.target.value;
+      update();
+    });
+
+    document.getElementById('timeOnlyAmbient').addEventListener('change', (e) => {
+      state.timeOnlyAmbient = e.target.checked;
+      update();
+    });
+
+    document.getElementById('autoBatterySaver').addEventListener('change', (e) => {
+      state.autoBatterySaver = e.target.checked;
+      update();
+    });
+
+    const batSlider = document.getElementById('batteryLevel');
+    const batOut = document.getElementById('batteryLevelOut');
+    batSlider.addEventListener('input', (e) => {
+      state.battery = Number(e.target.value);
+      batOut.textContent = `${state.battery}%`;
+      update();
+    });
+
+    document.getElementById('batteryQuickSeg').querySelectorAll('button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.getElementById('batteryQuickSeg').querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.battery = Number(btn.dataset.bat);
+        batSlider.value = String(state.battery);
+        batOut.textContent = `${state.battery}%`;
+        update();
+      });
+    });
+
+    document.getElementById('tempUnit').addEventListener('change', (e) => {
+      state.tempUnit = e.target.value;
+      update();
+    });
+
+    document.getElementById('weatherCondition').addEventListener('change', (e) => {
+      state.weatherCondition = Number(e.target.value);
+      update();
+    });
+
+    document.getElementById('nullSensors').addEventListener('change', (e) => {
+      state.nullSensors = e.target.checked;
+      update();
+    });
+
+    update();
+  </script>
+</body>
+</html>

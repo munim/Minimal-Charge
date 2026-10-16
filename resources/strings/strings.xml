@@ -1,0 +1,22 @@
+<strings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://developer.garmin.com/downloads/connect-iq/resources.xsd">
+    <string id="AppName">Minimal Charge</string>
+
+    <string id="Slot1Title">Slot 1</string>
+    <string id="Slot2Title">Slot 2</string>
+    <string id="Slot3Title">Slot 3</string>
+
+    <string id="SlotOff">Off</string>
+    <string id="SlotDate">Date (Minimal cost)</string>
+    <string id="SlotSteps">Steps (Low cost)</string>
+    <string id="SlotBattery">Watch battery (Minimal cost)</string>
+    <string id="SlotHeartRate">Heart Rate (High cost)</string>
+    <string id="SlotWeather">Weather (Medium cost)</string>
+
+    <string id="DataRefreshProfileTitle">Data Refresh Profile</string>
+    <string id="ProfileBalanced">Balanced</string>
+    <string id="ProfileMaxSaver">Max Battery Saver (Wake-Only)</string>
+    <string id="ProfileLiveActive">Live Active</string>
+
+    <string id="TimeOnlyAmbientTitle">Time-Only in Ambient Mode</string>
+    <string id="AutoBatterySaverTitle">Auto Battery Saver &lt;20%</string>
+</strings>
