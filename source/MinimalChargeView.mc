@@ -12,6 +12,8 @@ import Toybox.Weather;
 
 class MinimalChargeView extends WatchUi.WatchFace {
     private var _timeFont as FontResource?;
+    private var _labelFont as FontDefinition or VectorFont = Graphics.FONT_XTINY;
+    private var _valueFont as FontDefinition or VectorFont = Graphics.FONT_XTINY;
     private var _isAwake as Boolean = true;
     private var _justWoke as Boolean = true;
     private var _requiresBurnIn as Boolean = false;
@@ -95,6 +97,34 @@ class MinimalChargeView extends WatchUi.WatchFace {
 
     public function onLayout(dc as Dc) as Void {
         _timeFont = WatchUi.loadResource($.Rez.Fonts.TimeFont) as FontResource;
+        var width = dc.getWidth();
+        var height = dc.getHeight();
+        _labelFont = Graphics.FONT_XTINY;
+        _valueFont = Graphics.FONT_XTINY;
+
+        if (Graphics has :getVectorFont) {
+            var labelSize = ((width * 36) + 500) / 1000;
+            var valueSize = ((width * 50) + 500) / 1000;
+            var vfLabel = Graphics.getVectorFont({
+                :face => ["RobotoRegular", "RobotoCondensedRegular", "BionicMedium"],
+                :size => labelSize
+            });
+            var vfValue = Graphics.getVectorFont({
+                :face => ["RobotoRegular", "RobotoCondensedRegular", "BionicMedium"],
+                :size => valueSize
+            });
+            if (vfLabel != null) {
+                _labelFont = vfLabel;
+            }
+            if (vfValue != null) {
+                _valueFont = vfValue;
+            }
+        } else {
+            var tinyAscent = Graphics.getFontAscent(Graphics.FONT_TINY);
+            if (tinyAscent <= ((height * 65) / 1000)) {
+                _valueFont = Graphics.FONT_TINY;
+            }
+        }
         _cachedHour = -1;
     }
 
@@ -364,24 +394,33 @@ class MinimalChargeView extends WatchUi.WatchFace {
             return;
         }
 
-        var labelFont = Graphics.FONT_XTINY;
-        var valueFont = (width >= 320) ? Graphics.FONT_TINY : Graphics.FONT_XTINY;
-        var labelHeight = Graphics.getFontHeight(labelFont);
-        var valueHeight = Graphics.getFontHeight(valueFont);
-        var totalHeight = labelHeight + valueHeight + (hasBar ? 5 : 0);
-        var topY = alignBottom ? (anchorY - totalHeight) : anchorY;
+        var labelFont = _labelFont;
+        var valueFont = _valueFont;
+        var labelAscent = Graphics.getFontAscent(labelFont);
+        var valueAscent = Graphics.getFontAscent(valueFont);
+        var labelCapH = ((labelAscent * 72) + 50) / 100;
+        var valueCapH = ((valueAscent * 72) + 50) / 100;
+        var labelTopPad = labelAscent - labelCapH;
+        var valueTopPad = valueAscent - valueCapH;
 
+        var gapLabelVal = (width >= 320) ? 4 : 2;
+        var gapValBar = (width >= 320) ? 5 : 3;
+        var visTotalH = labelCapH + gapLabelVal + valueCapH + (hasBar ? (gapValBar + 3) : 0);
+        var visTopY = alignBottom ? (anchorY - visTotalH) : anchorY;
+
+        var labelDrawY = visTopY - labelTopPad;
         dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(x, topY, labelFont, label, justify);
+        dc.drawText(x, labelDrawY, labelFont, label, justify);
 
-        var valY = topY + labelHeight;
+        var visValTopY = visTopY + labelCapH + gapLabelVal;
+        var valDrawY = visValTopY - valueTopPad;
         dc.setColor(valueColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(x, valY, valueFont, value, justify);
+        dc.drawText(x, valDrawY, valueFont, value, justify);
 
         if (hasBar) {
             var barW = MinimalChargeLayout.computeBarWidth(width, _isRound);
             var barX = (justify == Graphics.TEXT_JUSTIFY_CENTER) ? (x - (barW / 2)) : x;
-            var barY = valY + valueHeight + 2;
+            var barY = visValTopY + valueCapH + gapValBar;
 
             dc.setColor(trackColor, Graphics.COLOR_TRANSPARENT);
             dc.fillRectangle(barX, barY, barW, 3);
