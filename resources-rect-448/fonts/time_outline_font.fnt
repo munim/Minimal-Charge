@@ -1,0 +1,14 @@
+info face="JetBrainsMono-BoldOutline" size=-179 bold=0 italic=0 charset="" unicode=1 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=1,1 outline=0
+common lineHeight=143 base=143 scaleW=1024 scaleH=512 pages=1 packed=0 alphaChnl=1 redChnl=0 greenChnl=0 blueChnl=0
+page id=0 file="time_outline_font_0.png"
+chars count=10
+char id=48   x=2     y=2     width=109   height=134   xoffset=0     yoffset=4     xadvance=107   page=0  chnl=15
+char id=49   x=115   y=2     width=109   height=132   xoffset=0     yoffset=5     xadvance=107   page=0  chnl=15
+char id=50   x=228   y=2     width=109   height=133   xoffset=0     yoffset=4     xadvance=107   page=0  chnl=15
+char id=51   x=341   y=2     width=109   height=133   xoffset=0     yoffset=5     xadvance=107   page=0  chnl=15
+char id=52   x=454   y=2     width=109   height=132   xoffset=0     yoffset=5     xadvance=107   page=0  chnl=15
+char id=53   x=2     y=140   width=109   height=133   xoffset=0     yoffset=5     xadvance=107   page=0  chnl=15
+char id=54   x=115   y=140   width=109   height=133   xoffset=0     yoffset=5     xadvance=107   page=0  chnl=15
+char id=55   x=228   y=140   width=109   height=132   xoffset=0     yoffset=5     xadvance=107   page=0  chnl=15
+char id=56   x=341   y=140   width=109   height=134   xoffset=0     yoffset=4     xadvance=107   page=0  chnl=15
+char id=57   x=454   y=140   width=109   height=133   xoffset=0     yoffset=4     xadvance=107   page=0  chnl=15

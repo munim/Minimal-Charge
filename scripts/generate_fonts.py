@@ -5,12 +5,18 @@ plus rectangular 40% buckets) and the launcher icon."""
 
 import math
 import os
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 FONT_CANDIDATES = [
     os.path.expanduser("~/Library/Fonts/JetBrainsMonoNerdFont-Light.ttf"),
     "/Library/Fonts/JetBrainsMono-Light.ttf",
     os.path.expanduser("~/Library/Fonts/JetBrainsMono-Light.ttf"),
+]
+
+BOLD_FONT_CANDIDATES = [
+    os.path.expanduser("~/Library/Fonts/JetBrainsMonoNerdFont-Bold.ttf"),
+    "/Library/Fonts/JetBrainsMono-Bold.ttf",
+    os.path.expanduser("~/Library/Fonts/JetBrainsMono-Bold.ttf"),
 ]
 
 BUCKETS = {
@@ -28,11 +34,11 @@ BUCKETS = {
 DIGITS = "0123456789"
 
 
-def find_font_path() -> str:
-    for path in FONT_CANDIDATES:
+def find_font_path(candidates: list[str] = FONT_CANDIDATES) -> str:
+    for path in candidates:
         if os.path.exists(path):
             return path
-    raise FileNotFoundError("JetBrains Mono Light TTF not found in font directories")
+    raise FileNotFoundError(f"JetBrains Mono TTF not found in candidates: {candidates}")
 
 
 def next_pow2(n: int) -> int:
@@ -42,16 +48,98 @@ def next_pow2(n: int) -> int:
     return p
 
 
-def build_bucket_font(ttf_path: str, folder: str, target_px: int) -> None:
+def render_outline_glyph(bold_ttf_path: str, target_px: int, ch: str) -> tuple[Image.Image, int, int, tuple[int, int, int, int]]:
+    """Render a hollow outline glyph from JetBrains Mono Bold using 4x supersampled morphological erosion."""
+    scale = 4
+    hi_font = ImageFont.truetype(bold_ttf_path, target_px * scale)
+    bbox_1x = ImageFont.truetype(bold_ttf_path, target_px).getbbox(ch)
+    gw = max(1, bbox_1x[2] - bbox_1x[0] + 2)
+    gh = max(1, bbox_1x[3] - bbox_1x[1] + 2)
+
+    # Outline wall thickness in 1x pixels: ~2.6% of target_px (2px..5px)
+    stroke_1x = max(2, int(round(target_px * 0.026)))
+    erode_px = stroke_1x * scale
+    margin = erode_px + scale * 2
+
+    hi_w = gw * scale + margin * 2
+    hi_h = gh * scale + margin * 2
+    outer = Image.new("L", (hi_w, hi_h), 0)
+    draw = ImageDraw.Draw(outer)
+    draw.text(
+        (margin + (-bbox_1x[0] + 1) * scale, margin + (-bbox_1x[1] + 1) * scale),
+        ch,
+        fill=255,
+        font=hi_font,
+    )
+
+    kernel_size = erode_px * 2 + 1
+    inner = outer.filter(ImageFilter.MinFilter(kernel_size))
+    hollow_hi = ImageChops.subtract(outer, inner).crop((margin, margin, margin + gw * scale, margin + gh * scale))
+
+    resample = getattr(Image, "Resampling", Image).LANCZOS
+    canvas = hollow_hi.resize((gw, gh), resample=resample)
+    return canvas, gw, gh, bbox_1x
+
+
+def save_fnt_and_atlas(
+    fonts_dir: str,
+    face_name: str,
+    fnt_filename: str,
+    png_name: str,
+    target_px: int,
+    line_height: int,
+    max_adv: int,
+    glyph_images: dict,
+) -> None:
+    cols = 5
+    rows = 2
+    cell_w = max(g[1] for g in glyph_images.values()) + 4
+    cell_h = max(g[2] for g in glyph_images.values()) + 4
+    atlas_w = next_pow2(cols * cell_w + 4)
+    atlas_h = next_pow2(rows * cell_h + 4)
+
+    atlas = Image.new("L", (atlas_w, atlas_h), 0)
+    char_lines = []
+
+    for idx, ch in enumerate(DIGITS):
+        col = idx % cols
+        row = idx // cols
+        x = 2 + col * cell_w
+        y = 2 + row * cell_h
+        img, gw, gh, xoff, yoff = glyph_images[ch]
+        atlas.paste(img, (x, y))
+        char_lines.append(
+            f"char id={ord(ch):<4d} x={x:<5d} y={y:<5d} width={gw:<5d} height={gh:<5d} "
+            f"xoffset={xoff:<5d} yoffset={yoff:<5d} xadvance={max_adv:<5d} page=0  chnl=15"
+        )
+
+    png_path = os.path.join(fonts_dir, png_name)
+    atlas.save(png_path, "PNG")
+
+    fnt_lines = [
+        f'info face="{face_name}" size=-{target_px} bold=0 italic=0 charset="" unicode=1 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=1,1 outline=0',
+        f"common lineHeight={line_height} base={line_height} scaleW={atlas_w} scaleH={atlas_h} pages=1 packed=0 alphaChnl=1 redChnl=0 greenChnl=0 blueChnl=0",
+        f'page id=0 file="{png_name}"',
+        f"chars count={len(char_lines)}",
+        *char_lines,
+    ]
+    fnt_path = os.path.join(fonts_dir, fnt_filename)
+    with open(fnt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(fnt_lines) + "\n")
+
+
+def build_bucket_font(ttf_path: str, bold_ttf_path: str, folder: str, target_px: int) -> None:
     fonts_dir = os.path.join(folder, "fonts")
     os.makedirs(fonts_dir, exist_ok=True)
 
     # Line-height is 0.8 of numeral size per spec
     line_height = max(16, int(round(target_px * 0.8)))
     font = ImageFont.truetype(ttf_path, target_px)
+    bold_font = ImageFont.truetype(bold_ttf_path, target_px)
 
     # Measure '0'..'9' bounding boxes to enforce fixed-width tabular cells
     glyph_images = {}
+    outline_glyph_images = {}
     max_adv = 0
     min_top = 9999
     max_bottom = -9999
@@ -77,43 +165,32 @@ def build_bucket_font(ttf_path: str, folder: str, target_px: int) -> None:
         yoffset = max(0, vertical_pad + (bbox[1] - min_top) - 1)
         glyph_images[ch] = (canvas, gw, gh, xoffset, yoffset)
 
-    # Pack 10 digits into a compact single-page grayscale atlas
-    cols = 5
-    rows = 2
-    cell_w = max(g[1] for g in glyph_images.values()) + 4
-    cell_h = max(g[2] for g in glyph_images.values()) + 4
-    atlas_w = next_pow2(cols * cell_w + 4)
-    atlas_h = next_pow2(rows * cell_h + 4)
+        out_canvas, out_gw, out_gh, out_bbox = render_outline_glyph(bold_ttf_path, target_px, ch)
+        out_xoffset = max(0, (max_adv - out_gw) // 2)
+        out_yoffset = max(0, vertical_pad + (out_bbox[1] - min_top) - 1)
+        outline_glyph_images[ch] = (out_canvas, out_gw, out_gh, out_xoffset, out_yoffset)
 
-    atlas = Image.new("L", (atlas_w, atlas_h), 0)
-    char_lines = []
+    save_fnt_and_atlas(
+        fonts_dir,
+        "JetBrainsMono-Light",
+        "time_font.fnt",
+        "time_font_0.png",
+        target_px,
+        line_height,
+        max_adv,
+        glyph_images,
+    )
 
-    for idx, ch in enumerate(DIGITS):
-        col = idx % cols
-        row = idx // cols
-        x = 2 + col * cell_w
-        y = 2 + row * cell_h
-        img, gw, gh, xoff, yoff = glyph_images[ch]
-        atlas.paste(img, (x, y))
-        char_lines.append(
-            f"char id={ord(ch):<4d} x={x:<5d} y={y:<5d} width={gw:<5d} height={gh:<5d} "
-            f"xoffset={xoff:<5d} yoffset={yoff:<5d} xadvance={max_adv:<5d} page=0  chnl=15"
-        )
-
-    png_name = "time_font_0.png"
-    png_path = os.path.join(fonts_dir, png_name)
-    atlas.save(png_path, "PNG")
-
-    fnt_lines = [
-        f'info face="JetBrainsMono-Light" size=-{target_px} bold=0 italic=0 charset="" unicode=1 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=1,1 outline=0',
-        f"common lineHeight={line_height} base={line_height} scaleW={atlas_w} scaleH={atlas_h} pages=1 packed=0 alphaChnl=1 redChnl=0 greenChnl=0 blueChnl=0",
-        f'page id=0 file="{png_name}"',
-        f"chars count={len(char_lines)}",
-        *char_lines,
-    ]
-    fnt_path = os.path.join(fonts_dir, "time_font.fnt")
-    with open(fnt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(fnt_lines) + "\n")
+    save_fnt_and_atlas(
+        fonts_dir,
+        "JetBrainsMono-BoldOutline",
+        "time_outline_font.fnt",
+        "time_outline_font_0.png",
+        target_px,
+        line_height,
+        max_adv,
+        outline_glyph_images,
+    )
 
     fonts_xml_path = os.path.join(fonts_dir, "fonts.xml")
     with open(fonts_xml_path, "w", encoding="utf-8") as f:
@@ -121,6 +198,7 @@ def build_bucket_font(ttf_path: str, folder: str, target_px: int) -> None:
             '<fonts xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
             'xsi:noNamespaceSchemaLocation="https://developer.garmin.com/downloads/connect-iq/resources.xsd">\n'
             '    <font id="TimeFont" filename="time_font.fnt" antialias="true" filter="0123456789" />\n'
+            '    <font id="TimeOutlineFont" filename="time_outline_font.fnt" antialias="true" filter="0123456789" />\n'
             "</fonts>\n"
         )
 
@@ -144,11 +222,12 @@ def build_launcher_icon(ttf_path: str) -> None:
 
 
 def main() -> None:
-    ttf_path = find_font_path()
+    ttf_path = find_font_path(FONT_CANDIDATES)
+    bold_ttf_path = find_font_path(BOLD_FONT_CANDIDATES)
     for folder, size in BUCKETS.items():
-        build_bucket_font(ttf_path, folder, size)
+        build_bucket_font(ttf_path, bold_ttf_path, folder, size)
     build_launcher_icon(ttf_path)
-    print(f"Generated {len(BUCKETS)} bitmap font buckets from {ttf_path}")
+    print(f"Generated {len(BUCKETS)} bitmap font buckets (Light + Bold Outline) from {ttf_path} and {bold_ttf_path}")
 
 
 if __name__ == "__main__":
