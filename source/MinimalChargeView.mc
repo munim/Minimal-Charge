@@ -12,12 +12,15 @@ import Toybox.Weather;
 
 class MinimalChargeView extends WatchUi.WatchFace {
     private var _timeFont as FontResource?;
+    private var _timeOutlineFont as FontResource?;
     private var _labelFont as FontDefinition or VectorFont = Graphics.FONT_XTINY;
     private var _valueFont as FontDefinition or VectorFont = Graphics.FONT_XTINY;
     private var _isAwake as Boolean = true;
     private var _justWoke as Boolean = true;
     private var _requiresBurnIn as Boolean = false;
     private var _isRound as Boolean = true;
+    private var _hasFullDraw as Boolean = false;
+    private var _prevLowPowerShedding as Boolean = false;
 
     // Settings
     private var _slot1 as Number = 1;
@@ -26,6 +29,7 @@ class MinimalChargeView extends WatchUi.WatchFace {
     private var _refreshProfile as Number = 0;
     private var _timeOnlyAmbient as Boolean = false;
     private var _autoBatterySaver as Boolean = true;
+    private var _ambientBrightness as Number = 0;
 
     // Cached time state to avoid recomputing when minute has not changed
     private var _cachedHour as Number = -1;
@@ -72,11 +76,13 @@ class MinimalChargeView extends WatchUi.WatchFace {
         _refreshProfile = getPropValue("DataRefreshProfile", 0) as Number;
         _timeOnlyAmbient = getPropValue("TimeOnlyAmbient", false) as Boolean;
         _autoBatterySaver = getPropValue("AutoBatterySaver", true) as Boolean;
+        _ambientBrightness = getPropValue("AmbientBrightness", 0) as Number;
         _cachedHour = -1;
         _stepsElapsedMins = 999;
         _batteryElapsedMins = 999;
         _weatherElapsedMins = 999;
         _justWoke = true;
+        _hasFullDraw = false;
     }
 
     private function getPropValue(key as String, fallback as Number or Boolean) as Number or Boolean {
@@ -97,6 +103,9 @@ class MinimalChargeView extends WatchUi.WatchFace {
 
     public function onLayout(dc as Dc) as Void {
         _timeFont = WatchUi.loadResource($.Rez.Fonts.TimeFont) as FontResource;
+        if (_requiresBurnIn) {
+            _timeOutlineFont = WatchUi.loadResource($.Rez.Fonts.TimeOutlineFont) as FontResource;
+        }
         var width = dc.getWidth();
         var height = dc.getHeight();
         _labelFont = Graphics.FONT_XTINY;
@@ -126,12 +135,14 @@ class MinimalChargeView extends WatchUi.WatchFace {
             }
         }
         _cachedHour = -1;
+        _hasFullDraw = false;
     }
 
     public function onEnterSleep() as Void {
         _isAwake = false;
         _justWoke = false;
         _cachedHour = -1;
+        _hasFullDraw = false;
         WatchUi.requestUpdate();
     }
 
@@ -139,6 +150,7 @@ class MinimalChargeView extends WatchUi.WatchFace {
         _isAwake = true;
         _justWoke = true;
         _cachedHour = -1;
+        _hasFullDraw = false;
         WatchUi.requestUpdate();
     }
 
@@ -149,6 +161,7 @@ class MinimalChargeView extends WatchUi.WatchFace {
         var is24Hour = devSettings.is24Hour;
         var clockTime = System.getClockTime();
 
+        var hourChanged = (_cachedHour < 0) || (_cachedHour != clockTime.hour) || (_cachedIs24Hour != is24Hour);
         var minuteChanged = MinimalChargeState.shouldRecomputeTime(
             _cachedHour,
             _cachedMin,
@@ -158,6 +171,7 @@ class MinimalChargeView extends WatchUi.WatchFace {
             is24Hour
         );
 
+        var dateRefreshed = false;
         if (minuteChanged) {
             _hourStr = MinimalChargeFormatter.formatHour(clockTime.hour, is24Hour);
             _minStr = MinimalChargeFormatter.formatTwoDigits(clockTime.min);
@@ -167,7 +181,7 @@ class MinimalChargeView extends WatchUi.WatchFace {
             _stepsElapsedMins += 1;
             _batteryElapsedMins += 1;
             _weatherElapsedMins += 1;
-            updateDateCache();
+            dateRefreshed = updateDateCache();
         }
 
         var burnIn = MinimalChargeState.computeBurnInOffset(width, height, clockTime.min, _requiresBurnIn, _isAwake);
@@ -179,56 +193,102 @@ class MinimalChargeView extends WatchUi.WatchFace {
         }
 
         var useF = (devSettings.temperatureUnits == System.UNIT_STATUTE);
-        refreshDataCaches(minuteChanged, useF);
+        var dataRefreshed = refreshDataCaches(minuteChanged, useF);
+        var anySlotRefreshed = dateRefreshed || dataRefreshed;
+
+        var nowShedding = MinimalChargeState.isLowPowerShedding(_cachedBattery, _autoBatterySaver);
+        var sheddingChanged = (nowShedding != _prevLowPowerShedding);
+        _prevLowPowerShedding = nowShedding;
+
+        var mipMinuteClip = MinimalChargeState.canUseMipMinuteClip(
+            _requiresBurnIn,
+            _hasFullDraw,
+            _justWoke,
+            minuteChanged,
+            hourChanged,
+            anySlotRefreshed,
+            sheddingChanged
+        );
         _justWoke = false;
 
-        var palette = MinimalChargeState.resolvePalette(_requiresBurnIn, _isAwake, _cachedBattery, _autoBatterySaver);
+        var palette = MinimalChargeState.resolvePaletteWithBrightness(
+            _requiresBurnIn,
+            _isAwake,
+            _cachedBattery,
+            _autoBatterySaver,
+            _ambientBrightness
+        );
         var fgColor = palette[0];
+        var justify = _isRound ? Graphics.TEXT_JUSTIFY_CENTER : Graphics.TEXT_JUSTIFY_LEFT;
+        var useOutline = MinimalChargeState.shouldUseOutlineTimeFont(_requiresBurnIn, _isAwake);
+        var activeTimeFont = (useOutline && _timeOutlineFont != null) ? _timeOutlineFont : _timeFont;
+
+        if (mipMinuteClip && (dc has :setClip)) {
+            var clipRect = MinimalChargeLayout.computeMinuteClipRect(width, height, _isRound);
+            dc.setClip(clipRect[0], clipRect[1], clipRect[2], clipRect[3]);
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+            dc.clear();
+            if (activeTimeFont != null) {
+                dc.setColor(fgColor, Graphics.COLOR_TRANSPARENT);
+                dc.drawText(_timeCoords[0], _timeCoords[2], activeTimeFont, _minStr, justify);
+            }
+            return;
+        }
+
+        if (dc has :clearClip) {
+            dc.clearClip();
+        }
 
         // Pure black (#000000) ground
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
         dc.clear();
 
-        // Draw stacked hour over minute in pre-baked JetBrains Mono Light 300 bitmap font
-        var loadedFont = _timeFont;
-        if (loadedFont != null) {
-            var justify = _isRound ? Graphics.TEXT_JUSTIFY_CENTER : Graphics.TEXT_JUSTIFY_LEFT;
+        // Draw stacked hour over minute in pre-baked JetBrains Mono (Light 300 awake/MIP, Bold Outline AMOLED sleep)
+        if (activeTimeFont != null) {
             dc.setColor(fgColor, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(_timeCoords[0], _timeCoords[1], loadedFont, _hourStr, justify);
-            dc.drawText(_timeCoords[0], _timeCoords[2], loadedFont, _minStr, justify);
+            dc.drawText(_timeCoords[0], _timeCoords[1], activeTimeFont, _hourStr, justify);
+            dc.drawText(_timeCoords[0], _timeCoords[2], activeTimeFont, _minStr, justify);
         }
 
         // Draw 3 data slots unless Time-Only Ambient or <20% Auto Battery Saver sleep hides them
         if (MinimalChargeState.shouldRenderSlots(_isAwake, _timeOnlyAmbient, _cachedBattery, _autoBatterySaver)) {
             drawAllSlots(dc, width, height, dx, dy, palette);
         }
+        _hasFullDraw = true;
     }
 
-    private function updateDateCache() as Void {
+    private function updateDateCache() as Boolean {
         if (!MinimalChargeState.hasSlotType(_slot1, _slot2, _slot3, MinimalChargeState.SLOT_DATE)) {
-            return;
+            return false;
         }
         var info = Gregorian.info(Time.now(), Time.FORMAT_MEDIUM);
-        _cachedWeekday = info.day_of_week.toString().toUpper();
-        _cachedDateVal = info.day.toString() + " " + info.month.toString();
+        var nextWeekday = info.day_of_week.toString().toUpper();
+        var nextDateVal = info.day.toString() + " " + info.month.toString();
+        var changed = !nextWeekday.equals(_cachedWeekday) || !nextDateVal.equals(_cachedDateVal);
+        _cachedWeekday = nextWeekday;
+        _cachedDateVal = nextDateVal;
+        return changed;
     }
 
-    private function refreshDataCaches(minuteChanged as Boolean, useFahrenheit as Boolean) as Void {
+    private function refreshDataCaches(minuteChanged as Boolean, useFahrenheit as Boolean) as Boolean {
         var hasBatterySlot = MinimalChargeState.hasSlotType(_slot1, _slot2, _slot3, MinimalChargeState.SLOT_BATTERY);
         var hasStepsSlot = MinimalChargeState.hasSlotType(_slot1, _slot2, _slot3, MinimalChargeState.SLOT_STEPS);
         var hasHrSlot = MinimalChargeState.hasSlotType(_slot1, _slot2, _slot3, MinimalChargeState.SLOT_HEART_RATE);
         var hasWeatherSlot = MinimalChargeState.hasSlotType(_slot1, _slot2, _slot3, MinimalChargeState.SLOT_WEATHER);
+        var refreshedSlot = false;
 
-        // Battery polling respects shouldPollStepsOrBattery (zero calls in sleep under Max Battery Saver)
-        var needBatteryCheck = hasBatterySlot || _autoBatterySaver;
-        if (MinimalChargeState.shouldPollStepsOrBattery(
-            needBatteryCheck, _isAwake, _justWoke, minuteChanged, _refreshProfile, _batteryElapsedMins
+        // Battery polling throttles to 30m in sleep when >30% or when no battery slot is visible
+        if (MinimalChargeState.shouldPollBattery(
+            hasBatterySlot, _autoBatterySaver, _isAwake, _justWoke, minuteChanged, _refreshProfile, _batteryElapsedMins, _cachedBattery
         )) {
             var stats = System.getSystemStats();
             if (stats != null) {
                 var batFloat = stats.battery;
                 if (batFloat != null) {
                     var batInt = (batFloat + 0.5f).toNumber();
+                    if (hasBatterySlot && (_cachedBattery == null || _cachedBattery != batInt)) {
+                        refreshedSlot = true;
+                    }
                     _cachedBattery = batInt;
                     _cachedBatteryStr = MinimalChargeFormatter.formatBattery(batInt);
                     _cachedBatteryRatio = MinimalChargeState.clampBarRatio(batInt, 100);
@@ -248,7 +308,11 @@ class MinimalChargeView extends WatchUi.WatchFace {
                     if (goal != null && goal > 0) {
                         _cachedStepGoal = goal;
                     }
-                    _cachedStepsStr = MinimalChargeFormatter.formatSteps(steps);
+                    var nextStepsStr = MinimalChargeFormatter.formatSteps(steps);
+                    if (!nextStepsStr.equals(_cachedStepsStr)) {
+                        refreshedSlot = true;
+                    }
+                    _cachedStepsStr = nextStepsStr;
                     _cachedStepsRatio = MinimalChargeState.clampBarRatio(steps, _cachedStepGoal);
                     _stepsElapsedMins = 0;
                 }
@@ -262,7 +326,11 @@ class MinimalChargeView extends WatchUi.WatchFace {
             var actInfo = Activity.getActivityInfo();
             if (actInfo != null && actInfo.currentHeartRate != null) {
                 hr = actInfo.currentHeartRate;
-            } else if ((Toybox has :ActivityMonitor) && (ActivityMonitor has :getHeartRateHistory)) {
+            } else if (
+                MinimalChargeState.shouldFallbackHeartRateHistory(_justWoke) &&
+                (Toybox has :ActivityMonitor) &&
+                (ActivityMonitor has :getHeartRateHistory)
+            ) {
                 var iter = ActivityMonitor.getHeartRateHistory(1, true);
                 if (iter != null) {
                     var sample = iter.next();
@@ -271,7 +339,11 @@ class MinimalChargeView extends WatchUi.WatchFace {
                     }
                 }
             }
-            _cachedHrStr = MinimalChargeFormatter.formatHeartRate(hr);
+            var nextHrStr = MinimalChargeFormatter.formatHeartRate(hr);
+            if (!nextHrStr.equals(_cachedHrStr)) {
+                refreshedSlot = true;
+            }
+            _cachedHrStr = nextHrStr;
         }
 
         if (MinimalChargeState.shouldPollWeather(
@@ -286,16 +358,21 @@ class MinimalChargeView extends WatchUi.WatchFace {
                     _cachedWeatherCond = null;
                     _cachedWeatherTempC = null;
                 }
-                if (_cachedWeatherCond == null && _cachedWeatherTempC == null) {
-                    _cachedWeatherLabel = "WEATHER";
-                    _cachedWeatherTempStr = "—";
-                } else {
-                    _cachedWeatherLabel = MinimalChargeFormatter.mapWeatherCondition(_cachedWeatherCond);
-                    _cachedWeatherTempStr = MinimalChargeFormatter.formatTemperature(_cachedWeatherTempC, useFahrenheit);
+                var nextWeatherLabel = "WEATHER";
+                var nextWeatherTemp = "—";
+                if (_cachedWeatherCond != null || _cachedWeatherTempC != null) {
+                    nextWeatherLabel = MinimalChargeFormatter.mapWeatherCondition(_cachedWeatherCond);
+                    nextWeatherTemp = MinimalChargeFormatter.formatTemperature(_cachedWeatherTempC, useFahrenheit);
                 }
+                if (!nextWeatherLabel.equals(_cachedWeatherLabel) || !nextWeatherTemp.equals(_cachedWeatherTempStr)) {
+                    refreshedSlot = true;
+                }
+                _cachedWeatherLabel = nextWeatherLabel;
+                _cachedWeatherTempStr = nextWeatherTemp;
                 _weatherElapsedMins = 0;
             }
         }
+        return refreshedSlot;
     }
 
     private function drawAllSlots(
@@ -359,10 +436,12 @@ class MinimalChargeView extends WatchUi.WatchFace {
         var warnColor = palette[4];
         var label = "";
         var value = "—";
+        var iconType = 0; // 0 = none, 1 = steps, 2 = battery
         var hasBar = false;
         var barRatio = 0.0f;
         var valueColor = fgColor;
         var barColor = fgColor;
+        var iconColor = dimColor;
         var bat = _cachedBattery;
         var lowPowerShedding = MinimalChargeState.isLowPowerShedding(bat, _autoBatterySaver);
 
@@ -370,19 +449,20 @@ class MinimalChargeView extends WatchUi.WatchFace {
             label = _cachedWeekday;
             value = _cachedDateVal;
         } else if (slotType == MinimalChargeState.SLOT_STEPS) {
-            label = "STEPS";
+            iconType = 1;
             value = _cachedStepsStr;
             hasBar = true;
             barRatio = _cachedStepsRatio;
             barColor = accentColor;
         } else if (slotType == MinimalChargeState.SLOT_BATTERY) {
-            label = "BATTERY";
+            iconType = 2;
             value = _cachedBatteryStr;
             hasBar = true;
             barRatio = _cachedBatteryRatio;
             if (bat != null && bat < 20) {
                 valueColor = warnColor;
                 barColor = warnColor;
+                iconColor = warnColor;
             }
         } else if (slotType == MinimalChargeState.SLOT_HEART_RATE) {
             label = "HR";
@@ -403,19 +483,45 @@ class MinimalChargeView extends WatchUi.WatchFace {
         var labelTopPad = labelAscent - labelCapH;
         var valueTopPad = valueAscent - valueCapH;
 
-        var gapLabelVal = (width >= 320) ? 4 : 2;
-        var gapValBar = (width >= 320) ? 5 : 3;
-        var visTotalH = labelCapH + gapLabelVal + valueCapH + (hasBar ? (gapValBar + 3) : 0);
+        var gapLabelVal = ((width * 22) + 500) / 1000;
+        if (gapLabelVal < 6) {
+            gapLabelVal = 6;
+        }
+        var gapValBar = ((width * 24) + 500) / 1000;
+        if (gapValBar < 6) {
+            gapValBar = 6;
+        }
+
+        var hasIcon = (iconType != 0);
+        var visTotalH = (hasIcon ? valueCapH : (labelCapH + gapLabelVal + valueCapH)) + (hasBar ? (gapValBar + 3) : 0);
         var visTopY = alignBottom ? (anchorY - visTotalH) : anchorY;
 
-        var labelDrawY = visTopY - labelTopPad;
-        dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(x, labelDrawY, labelFont, label, justify);
+        var visValTopY = visTopY;
+        if (!hasIcon) {
+            var labelDrawY = visTopY - labelTopPad;
+            dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(x, labelDrawY, labelFont, label, justify);
+            visValTopY = visTopY + labelCapH + gapLabelVal;
+        }
 
-        var visValTopY = visTopY + labelCapH + gapLabelVal;
         var valDrawY = visValTopY - valueTopPad;
-        dc.setColor(valueColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(x, valDrawY, valueFont, value, justify);
+        if (hasIcon) {
+            var iconW = getSlotIconWidth(width, valueCapH, iconType);
+            var iconGap = ((width * 14) + 500) / 1000;
+            if (iconGap < 4) {
+                iconGap = 4;
+            }
+            var textW = dc.getTextWidthInPixels(value, valueFont);
+            var totalRowW = iconW + iconGap + textW;
+            var rowStartX = (justify == Graphics.TEXT_JUSTIFY_CENTER) ? (x - (totalRowW / 2)) : x;
+
+            drawSlotIcon(dc, width, rowStartX, visValTopY, valueCapH, iconType, iconColor, barRatio);
+            dc.setColor(valueColor, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(rowStartX + iconW + iconGap, valDrawY, valueFont, value, Graphics.TEXT_JUSTIFY_LEFT);
+        } else {
+            dc.setColor(valueColor, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(x, valDrawY, valueFont, value, justify);
+        }
 
         if (hasBar) {
             var barW = MinimalChargeLayout.computeBarWidth(width, _isRound);
@@ -430,6 +536,96 @@ class MinimalChargeView extends WatchUi.WatchFace {
                 dc.setColor(barColor, Graphics.COLOR_TRANSPARENT);
                 dc.fillRectangle(barX, barY, fillW, 3);
             }
+        }
+    }
+
+    private function getSlotIconWidth(width as Number, valueCapH as Number, iconType as Number) as Number {
+        if (iconType == 1) {
+            var footW = ((width * 13) + 500) / 1000;
+            if (footW < 4) {
+                footW = 4;
+            }
+            var footGap = (width >= 320) ? 3 : 2;
+            return (footW * 2) + footGap;
+        }
+        var batH = ((valueCapH * 68) + 50) / 100;
+        if (batH < 7) {
+            batH = 7;
+        }
+        var bodyW = ((batH * 155) + 50) / 100;
+        var nubW = (width >= 320) ? 2 : 1;
+        return bodyW + nubW;
+    }
+
+    private function drawSlotIcon(
+        dc as Dc,
+        width as Number,
+        iconX as Number,
+        valTopY as Number,
+        valueCapH as Number,
+        iconType as Number,
+        iconColor as Number,
+        barRatio as Float
+    ) as Void {
+        if (iconType == 1) {
+            var footW = ((width * 13) + 500) / 1000;
+            if (footW < 4) {
+                footW = 4;
+            }
+            var footGap = (width >= 320) ? 3 : 2;
+            var footH = ((valueCapH * 78) + 50) / 100;
+            if (footH < 8) {
+                footH = 8;
+            }
+            var stagger = valueCapH - footH;
+            if (stagger < 2) {
+                stagger = 2;
+            }
+            var radius = footW / 2;
+            var archGap = (width >= 320) ? 2 : 1;
+            var leftY = valTopY + stagger;
+            var rightY = valTopY;
+            var rightX = iconX + footW + footGap;
+
+            dc.setColor(iconColor, Graphics.COLOR_TRANSPARENT);
+            dc.fillRoundedRectangle(iconX, leftY, footW, footH, radius);
+            dc.fillRoundedRectangle(rightX, rightY, footW, footH, radius);
+
+            var archOffset = ((footH * 58) + 50) / 100;
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
+            dc.fillRectangle(iconX, leftY + archOffset, footW, archGap);
+            dc.fillRectangle(rightX, rightY + archOffset, footW, archGap);
+            return;
+        }
+
+        // Battery icon
+        var batH = ((valueCapH * 68) + 50) / 100;
+        if (batH < 7) {
+            batH = 7;
+        }
+        var bodyW = ((batH * 155) + 50) / 100;
+        var nubW = (width >= 320) ? 2 : 1;
+        var nubH = ((batH * 46) + 50) / 100;
+        if (nubH < 3) {
+            nubH = 3;
+        }
+        var stroke = (width >= 360) ? 2 : 1;
+        var batY = valTopY + ((valueCapH - batH) / 2);
+
+        dc.setColor(iconColor, Graphics.COLOR_TRANSPARENT);
+        dc.fillRectangle(iconX, batY, bodyW, batH);
+        dc.fillRectangle(iconX + bodyW, batY + ((batH - nubH) / 2), nubW, nubH);
+
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
+        dc.fillRectangle(iconX + stroke, batY + stroke, bodyW - (stroke * 2), batH - (stroke * 2));
+
+        var innerPad = stroke + 1;
+        var maxFillW = bodyW - (innerPad * 2);
+        var innerH = batH - (innerPad * 2);
+        var fillW = (maxFillW.toFloat() * barRatio + 0.5f).toNumber();
+        if (fillW > 0 && innerH > 0) {
+            dc.setColor(iconColor, Graphics.COLOR_TRANSPARENT);
+            dc.fillRectangle(iconX + innerPad, batY + innerPad, fillW, innerH);
         }
     }
 }

@@ -14,6 +14,10 @@ import {
   mapWeatherCondition,
   formatTemperature,
   shouldQueryHeartRate,
+  shouldFallbackHeartRateHistory,
+  shouldUseOutlineTimeFont,
+  canUseMipMinuteClip,
+  computeMinuteClipRect,
   evaluateRefreshPolicy,
   shouldRenderSlots,
   buildWatchRenderModel,
@@ -507,8 +511,89 @@ test('HTML Simulator (Tickets #1-#6): simulator/index.html exposes Round/Square,
   assert.match(html, /id="refreshProfile"/);
   assert.match(html, /id="timeOnlyAmbient"/);
   assert.match(html, /id="autoBatterySaver"/);
+  assert.match(html, /id="ambientBrightness"/);
   assert.match(html, /id="batteryLevel"/);
   assert.match(html, /id="tempUnit"/);
+});
+
+test('Power Optimizations (#4, #5, #6, #7, #8): HR wake-only history fallback, 30m sleep battery throttle, Bold Outline ambient font, Ambient Brightness presets, and MIP dirty-rect clipping', () => {
+  // #4: HR history fallback only on wrist wake (justWoke)
+  assert.equal(shouldFallbackHeartRateHistory(true), true);
+  assert.equal(shouldFallbackHeartRateHistory(false), false);
+  const wakeHr = evaluateRefreshPolicy({
+    profile: 'balanced',
+    isAwake: true,
+    justWoke: true,
+    minuteChanged: false,
+    slots: ['hr'],
+  });
+  const minuteHr = evaluateRefreshPolicy({
+    profile: 'balanced',
+    isAwake: true,
+    justWoke: false,
+    minuteChanged: true,
+    slots: ['hr'],
+  });
+  assert.equal(wakeHr.pollHr, true);
+  assert.equal(wakeHr.pollHrHistoryFallback, true);
+  assert.equal(minuteHr.pollHr, true);
+  assert.equal(minuteHr.pollHrHistoryFallback, false);
+
+  // #5: Sleep battery polling throttled to 30m (1800s) when battery > 30% or no battery slot, 5m (300s) when <= 30% with battery slot
+  const sleepHighBat5m = evaluateRefreshPolicy({
+    profile: 'balanced',
+    isAwake: false,
+    justWoke: false,
+    minuteChanged: true,
+    slots: ['battery'],
+    battery: 76,
+    elapsedSec: { steps: 300, battery: 300, weather: 300 },
+  });
+  assert.equal(sleepHighBat5m.pollBattery, false);
+
+  const sleepHighBat30m = evaluateRefreshPolicy({
+    profile: 'balanced',
+    isAwake: false,
+    justWoke: false,
+    minuteChanged: true,
+    slots: ['battery'],
+    battery: 76,
+    elapsedSec: { steps: 1800, battery: 1800, weather: 1800 },
+  });
+  assert.equal(sleepHighBat30m.pollBattery, true);
+
+  const sleepLowBat5m = evaluateRefreshPolicy({
+    profile: 'balanced',
+    isAwake: false,
+    justWoke: false,
+    minuteChanged: true,
+    slots: ['battery'],
+    battery: 25,
+    elapsedSec: { steps: 300, battery: 300, weather: 300 },
+  });
+  assert.equal(sleepLowBat5m.pollBattery, true);
+
+  // #6: JetBrains Mono Bold outline font active only in AMOLED Ambient mode
+  assert.equal(shouldUseOutlineTimeFont(true, false), true);
+  assert.equal(shouldUseOutlineTimeFont(true, true), false);
+  assert.equal(shouldUseOutlineTimeFont(false, false), false);
+  const ambientAmoledModel = buildWatchRenderModel({ displayType: 'amoled', isAwake: false, ambientBrightness: 1 });
+  assert.equal(ambientAmoledModel.useOutlineTimeFont, true);
+  assert.equal(ambientAmoledModel.palette.fg, '#808080');
+
+  // #7: AMOLED Ambient Brightness presets (0 = #BFC2C7, 1 = #808080, 2 = #4D4F54)
+  assert.equal(resolvePalette({ requiresBurnInProtection: true, isAwake: false, ambientBrightness: 0 }).fg, '#BFC2C7');
+  assert.equal(resolvePalette({ requiresBurnInProtection: true, isAwake: false, ambientBrightness: 1 }).fg, '#808080');
+  assert.equal(resolvePalette({ requiresBurnInProtection: true, isAwake: false, ambientBrightness: 2 }).fg, '#4D4F54');
+
+  // #8: MIP Dirty-Rect Clipping policy and minute clip rect
+  assert.equal(canUseMipMinuteClip({ requiresBurnInProtection: false, hasFullDraw: true, justWoke: false, minuteChanged: true, hourChanged: false, anySlotRefreshed: false, sheddingChanged: false }), true);
+  assert.equal(canUseMipMinuteClip({ requiresBurnInProtection: true, hasFullDraw: true, justWoke: false, minuteChanged: true, hourChanged: false, anySlotRefreshed: false, sheddingChanged: false }), false);
+  assert.equal(canUseMipMinuteClip({ requiresBurnInProtection: false, hasFullDraw: true, justWoke: false, minuteChanged: true, hourChanged: true, anySlotRefreshed: false, sheddingChanged: false }), false);
+  const mipRoundClip = computeMinuteClipRect(260, 260, 'round');
+  assert.equal(mipRoundClip.y, 130);
+  const mipSquareClip = computeMinuteClipRect(240, 240, 'square');
+  assert.equal(mipSquareClip.y, 96);
 });
 
 

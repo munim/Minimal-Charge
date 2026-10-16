@@ -15,8 +15,21 @@ module MinimalChargeState {
     const PROFILE_MAX_SAVER = 1;
     const PROFILE_LIVE_ACTIVE = 2;
 
+    // AMOLED Ambient brightness presets
+    const AMBIENT_BRIGHTNESS_DEFAULT = 0;
+    const AMBIENT_BRIGHTNESS_MEDIUM = 1;
+    const AMBIENT_BRIGHTNESS_ULTRA_DIM = 2;
+
     public function isLowPowerShedding(battery as Number?, autoBatterySaver as Boolean) as Boolean {
         return autoBatterySaver && (battery != null) && (battery < 20);
+    }
+
+    public function shouldUseOutlineTimeFont(requiresBurnInProtection as Boolean, isAwake as Boolean) as Boolean {
+        return requiresBurnInProtection && !isAwake;
+    }
+
+    public function shouldFallbackHeartRateHistory(justWoke as Boolean) as Boolean {
+        return justWoke;
     }
 
     public function clampBarRatio(value as Number?, goal as Number) as Float {
@@ -83,6 +96,22 @@ module MinimalChargeState {
         battery as Number?,
         autoBatterySaver as Boolean
     ) as Array<Number> {
+        return resolvePaletteWithBrightness(
+            requiresBurnInProtection,
+            isAwake,
+            battery,
+            autoBatterySaver,
+            AMBIENT_BRIGHTNESS_DEFAULT
+        );
+    }
+
+    public function resolvePaletteWithBrightness(
+        requiresBurnInProtection as Boolean,
+        isAwake as Boolean,
+        battery as Number?,
+        autoBatterySaver as Boolean,
+        ambientBrightness as Number
+    ) as Array<Number> {
         var lowPowerShedding = isLowPowerShedding(battery, autoBatterySaver);
 
         if (!requiresBurnInProtection) {
@@ -94,8 +123,13 @@ module MinimalChargeState {
             return [0xFFFFFF, 0xAAAAAA, 0x555555, 0x00AAFF, 0xFFAA00];
         }
 
-        // AMOLED Ambient sleep mode: dimmed greys, no bright accent or amber
+        // AMOLED Ambient sleep mode: dimmed greys according to user brightness preset, no bright accent or amber
         if (!isAwake) {
+            if (ambientBrightness == AMBIENT_BRIGHTNESS_ULTRA_DIM) {
+                return [0x4D4F54, 0x3B3D42, 0x121417, 0x4D4F54, 0x4D4F54];
+            } else if (ambientBrightness == AMBIENT_BRIGHTNESS_MEDIUM) {
+                return [0x808080, 0x606368, 0x1A1D22, 0x808080, 0x808080];
+            }
             return [0xBFC2C7, 0x8E9299, 0x22262C, 0xBFC2C7, 0xBFC2C7];
         }
 
@@ -163,6 +197,47 @@ module MinimalChargeState {
             return justWoke || (minuteChanged && (elapsedMinutes >= 1));
         }
         return minuteChanged && (elapsedMinutes >= 5);
+    }
+
+    public function shouldPollBattery(
+        hasBatterySlot as Boolean,
+        autoBatterySaver as Boolean,
+        isAwake as Boolean,
+        justWoke as Boolean,
+        minuteChanged as Boolean,
+        profile as Number,
+        elapsedMinutes as Number,
+        cachedBattery as Number?
+    ) as Boolean {
+        if (!hasBatterySlot && !autoBatterySaver) {
+            return false;
+        }
+        if (!isAwake && (profile == PROFILE_MAX_SAVER)) {
+            return false;
+        }
+        if (isAwake) {
+            return justWoke || (minuteChanged && (elapsedMinutes >= 1));
+        }
+        var sleepThreshold = (!hasBatterySlot || (cachedBattery != null && cachedBattery > 30)) ? 30 : 5;
+        return minuteChanged && (elapsedMinutes >= sleepThreshold);
+    }
+
+    public function canUseMipMinuteClip(
+        requiresBurnInProtection as Boolean,
+        hasFullDraw as Boolean,
+        justWoke as Boolean,
+        minuteChanged as Boolean,
+        hourChanged as Boolean,
+        anySlotRefreshed as Boolean,
+        sheddingChanged as Boolean
+    ) as Boolean {
+        if (requiresBurnInProtection || !hasFullDraw || justWoke || !minuteChanged) {
+            return false;
+        }
+        if (hourChanged || anySlotRefreshed || sheddingChanged) {
+            return false;
+        }
+        return true;
     }
 
     public function shouldPollWeather(

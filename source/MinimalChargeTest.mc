@@ -156,5 +156,41 @@ function testSeam3StepsWeatherAndSensors(logger as Test.Logger) as Boolean {
     Test.assertEqual(false, MinimalChargeState.shouldPollHeartRate(true, true, false, false, 0, 76, true)); // Balanced 1Hz tick
     Test.assertEqual(true, MinimalChargeState.shouldPollHeartRate(true, true, false, false, 2, 76, true));  // Live Active 1Hz tick
     Test.assertEqual(false, MinimalChargeState.shouldPollHeartRate(true, true, true, true, 2, 14, true));  // Suspended <20%
+
+    // #4: HR history fallback only on wrist wake (_justWoke)
+    Test.assertEqual(true, MinimalChargeState.shouldFallbackHeartRateHistory(true));
+    Test.assertEqual(false, MinimalChargeState.shouldFallbackHeartRateHistory(false));
+
+    // #5: Sleep battery polling throttled to 30m when >30% or no battery slot, 5m when <=30% with battery slot
+    Test.assertEqual(false, MinimalChargeState.shouldPollBattery(true, true, false, false, true, 0, 5, 76));
+    Test.assertEqual(false, MinimalChargeState.shouldPollBattery(true, true, false, false, true, 0, 29, 76));
+    Test.assertEqual(true, MinimalChargeState.shouldPollBattery(true, true, false, false, true, 0, 30, 76));
+    Test.assertEqual(true, MinimalChargeState.shouldPollBattery(true, true, false, false, true, 0, 5, 25));
+    Test.assertEqual(false, MinimalChargeState.shouldPollBattery(false, true, false, false, true, 0, 5, 25));
+    Test.assertEqual(true, MinimalChargeState.shouldPollBattery(false, true, false, false, true, 0, 30, 25));
+
+    // #6: Outline Bold font used only in AMOLED Ambient mode
+    Test.assertEqual(true, MinimalChargeState.shouldUseOutlineTimeFont(true, false));
+    Test.assertEqual(false, MinimalChargeState.shouldUseOutlineTimeFont(true, true));
+    Test.assertEqual(false, MinimalChargeState.shouldUseOutlineTimeFont(false, false));
+
+    // #7: AMOLED Ambient Brightness presets (0 = 75% #BFC2C7, 1 = 50% #808080, 2 = 30% #4D4F54)
+    var ambDef = MinimalChargeState.resolvePaletteWithBrightness(true, false, 76, true, 0);
+    var ambMed = MinimalChargeState.resolvePaletteWithBrightness(true, false, 76, true, 1);
+    var ambDim = MinimalChargeState.resolvePaletteWithBrightness(true, false, 76, true, 2);
+    Test.assertEqual(0xBFC2C7, ambDef[0]);
+    Test.assertEqual(0x808080, ambMed[0]);
+    Test.assertEqual(0x4D4F54, ambDim[0]);
+
+    // #8: MIP Dirty-Rect Clipping policy and minute clip rect
+    Test.assertEqual(true, MinimalChargeState.canUseMipMinuteClip(false, true, false, true, false, false, false));
+    Test.assertEqual(false, MinimalChargeState.canUseMipMinuteClip(true, true, false, true, false, false, false)); // AMOLED
+    Test.assertEqual(false, MinimalChargeState.canUseMipMinuteClip(false, false, false, true, false, false, false)); // No full draw yet
+    Test.assertEqual(false, MinimalChargeState.canUseMipMinuteClip(false, true, false, true, true, false, false)); // Hour changed
+    Test.assertEqual(false, MinimalChargeState.canUseMipMinuteClip(false, true, false, true, false, true, false)); // Slot refreshed
+    var mipClipRound = MinimalChargeLayout.computeMinuteClipRect(260, 260, true);
+    Test.assertEqual(130, mipClipRound[1]);
+    var mipClipSquare = MinimalChargeLayout.computeMinuteClipRect(240, 240, false);
+    Test.assertEqual(96, mipClipSquare[1]);
     return true;
 }

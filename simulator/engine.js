@@ -82,11 +82,55 @@ export function isLowPowerShedding(battery, autoBatterySaver = true) {
   return Boolean(autoBatterySaver && battery !== null && battery !== undefined && Number(battery) < 20);
 }
 
+export function shouldUseOutlineTimeFont(requiresBurnInProtection = true, isAwake = true) {
+  return Boolean(requiresBurnInProtection && !isAwake);
+}
+
+export function shouldFallbackHeartRateHistory(justWoke = false) {
+  return Boolean(justWoke);
+}
+
+export function canUseMipMinuteClip({
+  requiresBurnInProtection = false,
+  hasFullDraw = true,
+  justWoke = false,
+  minuteChanged = true,
+  hourChanged = false,
+  anySlotRefreshed = false,
+  sheddingChanged = false,
+} = {}) {
+  if (requiresBurnInProtection || !hasFullDraw || justWoke || !minuteChanged) {
+    return false;
+  }
+  if (hourChanged || anySlotRefreshed || sheddingChanged) {
+    return false;
+  }
+  return true;
+}
+
+export function computeMinuteClipRect(width, height, shape = 'round') {
+  const isRound = shape === 'round';
+  if (isRound) {
+    const clipW = Math.round(width * 0.48);
+    const clipX = Math.floor((width - clipW) / 2);
+    const clipY = Math.floor(height / 2);
+    const clipH = Math.round(height * 0.28);
+    return { x: clipX, y: clipY, width: clipW, height: clipH };
+  }
+  return {
+    x: Math.round(width * 0.06),
+    y: Math.round(height * 0.40),
+    width: Math.round(width * 0.54),
+    height: Math.round(height * 0.33),
+  };
+}
+
 export function resolvePalette({
   requiresBurnInProtection = true,
   isAwake = true,
   battery = 100,
   autoBatterySaver = false,
+  ambientBrightness = 0,
 } = {}) {
   const lowPowerShedding = isLowPowerShedding(battery, autoBatterySaver);
 
@@ -112,6 +156,27 @@ export function resolvePalette({
   }
 
   if (!isAwake) {
+    const normBrightness = String(ambientBrightness ?? 0).toLowerCase();
+    if (normBrightness === '2' || normBrightness === 'ultradim') {
+      return {
+        bg: '#000000',
+        fg: '#4D4F54',
+        dim: '#3B3D42',
+        track: '#121417',
+        accent: '#4D4F54',
+        warn: '#4D4F54',
+      };
+    }
+    if (normBrightness === '1' || normBrightness === 'medium') {
+      return {
+        bg: '#000000',
+        fg: '#808080',
+        dim: '#606368',
+        track: '#1A1D22',
+        accent: '#808080',
+        warn: '#808080',
+      };
+    }
     return {
       bg: '#000000',
       fg: '#BFC2C7',
@@ -269,6 +334,7 @@ export function evaluateRefreshPolicy({
   if (!isAwake && isSaverProfile) {
     return {
       pollHr: false,
+      pollHrHistoryFallback: false,
       pollSteps: false,
       pollBattery: false,
       pollWeather: false,
@@ -280,19 +346,26 @@ export function evaluateRefreshPolicy({
   // - Never in sleep mode or when lowPowerShedding is active
   // - Live Active: every 1s in Active mode
   // - Balanced / Max Battery Saver: only on wrist raise (justWoke) or minute rollover while awake
+  // - History fallback (#4): only on wrist wake (justWoke)
   const canPollHr = shouldQueryHeartRate(slots, isAwake, { battery, autoBatterySaver });
   const pollHr = canPollHr && (isLiveProfile ? true : Boolean(justWoke || minuteChanged));
+  const pollHrHistoryFallback = pollHr && shouldFallbackHeartRateHistory(justWoke);
 
   // Steps & Battery:
   // - Active mode: on wrist raise or at 60s (minuteChanged / elapsed >= 60)
-  // - Ambient sleep mode (Balanced & Live Active): every 5 minutes (300s)
+  // - Ambient sleep mode (Balanced & Live Active):
+  //   - Steps: every 5 minutes (300s)
+  //   - Battery (#5): every 30 minutes (1800s) when battery > 30% or no battery slot is visible, else every 5 minutes (300s)
   const stepsThreshold = isAwake ? 60 : 300;
-  const batteryThreshold = isAwake ? 60 : 300;
+  const hasBatSlot = hasSlot('battery');
+  const needBatCheck = hasBatSlot || Boolean(autoBatterySaver);
+  const sleepBatSlow = !hasBatSlot || (battery !== null && battery !== undefined && Number(battery) > 30);
+  const batteryThreshold = isAwake ? 60 : (sleepBatSlow ? 1800 : 300);
   const canTickStat = isAwake ? Boolean(justWoke || minuteChanged || elapsedSec.steps >= stepsThreshold) : Boolean(minuteChanged && elapsedSec.steps >= stepsThreshold);
   const canTickBat = isAwake ? Boolean(justWoke || minuteChanged || elapsedSec.battery >= batteryThreshold) : Boolean(minuteChanged && elapsedSec.battery >= batteryThreshold);
 
   const pollSteps = hasSlot('steps') && (justWoke || (elapsedSec.steps ?? Infinity) >= stepsThreshold) && canTickStat;
-  const pollBattery = hasSlot('battery') && (justWoke || (elapsedSec.battery ?? Infinity) >= batteryThreshold) && canTickBat;
+  const pollBattery = needBatCheck && (justWoke || (elapsedSec.battery ?? Infinity) >= batteryThreshold) && canTickBat;
 
   // Weather:
   // - Suspended when lowPowerShedding is active
@@ -310,6 +383,7 @@ export function evaluateRefreshPolicy({
 
   return {
     pollHr,
+    pollHrHistoryFallback,
     pollSteps,
     pollBattery,
     pollWeather,
@@ -326,7 +400,10 @@ export function buildWatchRenderModel(state = {}) {
   const battery = state.battery ?? 76;
   const autoBatterySaver = state.autoBatterySaver !== false;
   const timeOnlyAmbient = Boolean(state.timeOnlyAmbient);
+  const ambientBrightness = state.ambientBrightness ?? 0;
   const lowPowerShedding = isLowPowerShedding(battery, autoBatterySaver);
+  const useOutlineTimeFont = shouldUseOutlineTimeFont(requiresBurnInProtection, isAwake);
+  const mipMinuteClipRect = !requiresBurnInProtection ? computeMinuteClipRect(width, height, shape) : null;
 
   const time = formatTimeDigits(state.hour ?? 10, state.minute ?? 9, state.is24Hour !== false);
   const timeGeometry = computeTimeStackGeometry(width, height, shape);
@@ -336,6 +413,7 @@ export function buildWatchRenderModel(state = {}) {
     isAwake,
     battery,
     autoBatterySaver,
+    ambientBrightness,
   });
   const slotsVisible = shouldRenderSlots({
     isAwake,
@@ -371,6 +449,7 @@ export function buildWatchRenderModel(state = {}) {
   const slots = slotLayout.map((slotGeo) => {
     const metric = formatSlotMetric(slotGeo.type, metricData);
     const valueColor = metric.valueColorRole === 'warn' ? palette.warn : palette.fg;
+    const iconColor = metric.valueColorRole === 'warn' ? palette.warn : palette.dim;
     const barColor =
       metric.barColorRole === 'warn'
         ? palette.warn
@@ -382,6 +461,7 @@ export function buildWatchRenderModel(state = {}) {
       visible: slotsVisible && slotGeo.visible,
       metric,
       labelColor: palette.dim,
+      iconColor,
       valueColor,
       barColor,
       trackColor: palette.track,
@@ -395,6 +475,8 @@ export function buildWatchRenderModel(state = {}) {
     requiresBurnInProtection,
     isAwake,
     lowPowerShedding,
+    useOutlineTimeFont,
+    mipMinuteClipRect,
     time,
     timeGeometry,
     burnIn,
@@ -451,6 +533,7 @@ export function formatSlotMetric(slotType, data = {}) {
     return {
       type: 'steps',
       label: 'STEPS',
+      icon: 'steps',
       value: hasSteps ? formatSteps(steps) : '—',
       hasBar: true,
       barRatio: ratio,
@@ -467,6 +550,7 @@ export function formatSlotMetric(slotType, data = {}) {
     return {
       type: 'battery',
       label: 'BATTERY',
+      icon: 'battery',
       value: hasBattery ? `${pct}%` : '—',
       hasBar: true,
       barRatio: hasBattery ? pct / 100 : 0,

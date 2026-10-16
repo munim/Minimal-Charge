@@ -59,4 +59,23 @@ module MinimalChargeLayout {
         }
         return ((height * pct) + 50) / 100;
     }
+
+    // MIP dirty-rect bounding box [clipX, clipY, clipW, clipH] for minute-only updates:
+    // Round: minute occupies y: 50%..77.2%, centered horizontally within 48% width
+    // Square: minute occupies x: 6%..60%, y: 40%..73% (left of the 62% slot column)
+    public function computeMinuteClipRect(width as Number, height as Number, isRound as Boolean) as Array<Number> {
+        if (isRound) {
+            var clipW = ((width * 480) + 500) / 1000;
+            var clipX = (width - clipW) / 2;
+            var clipY = height / 2;
+            var clipH = ((height * 280) + 500) / 1000;
+            return [clipX, clipY, clipW, clipH];
+        } else {
+            var clipX = ((width * 6) + 50) / 100;
+            var clipY = ((height * 40) + 50) / 100;
+            var clipW = ((width * 54) + 50) / 100;
+            var clipH = ((height * 33) + 50) / 100;
+            return [clipX, clipY, clipW, clipH];
+        }
+    }
 }
