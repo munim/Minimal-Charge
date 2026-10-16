@@ -47,4 +47,12 @@
     <setting propertyKey="@Properties.AutoBatterySaver" title="@Strings.AutoBatterySaverTitle">
         <settingConfig type="boolean" />
     </setting>
+
+    <setting propertyKey="@Properties.AmbientBrightness" title="@Strings.AmbientBrightnessTitle">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.AmbientBrightnessDefault</listEntry>
+            <listEntry value="1">@Strings.AmbientBrightnessMedium</listEntry>
+            <listEntry value="2">@Strings.AmbientBrightnessUltraDim</listEntry>
+        </settingConfig>
+    </setting>
 </settings>

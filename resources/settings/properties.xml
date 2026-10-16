@@ -5,4 +5,5 @@
     <property id="DataRefreshProfile" type="number">0</property>
     <property id="TimeOnlyAmbient" type="boolean">false</property>
     <property id="AutoBatterySaver" type="boolean">true</property>
+    <property id="AmbientBrightness" type="number">0</property>
 </properties>
