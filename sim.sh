@@ -27,12 +27,14 @@ fi
 mkdir -p "$ROOT_DIR/bin"
 PRG_FILE="$ROOT_DIR/bin/MinimalCharge-${DEVICE}.prg"
 
-echo "Building Minimal Charge for device: $DEVICE ..."
+echo "Building Minimal Charge (release performance) for device: $DEVICE ..."
 "$SDK_BIN/monkeyc" \
   -d "$DEVICE" \
   -f "$ROOT_DIR/monkey.jungle" \
   -o "$PRG_FILE" \
   -y "$KEY_FILE" \
+  -r \
+  -O 3p \
   -l 3
 
 echo "Launching $DEVICE in Connect IQ Simulator ..."
